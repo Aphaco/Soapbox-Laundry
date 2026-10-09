@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.env.example.env
+.env.local
+.env.*.local
+orders.json
+.DS_Store
