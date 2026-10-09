@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { TIME_SLOTS, MIN_ORDER, priceOrder } from '../shared/catalog.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const projectDir = path.dirname(fileURLToPath(import.meta.url));
 
 const SECRET = process.env.PAYSTACK_SECRET_KEY;
 const CURRENCY = (process.env.CURRENCY || 'GHS').toUpperCase();
