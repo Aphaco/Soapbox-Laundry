@@ -1,10 +1,13 @@
 import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { TIME_SLOTS, MIN_ORDER, priceOrder } from '../shared/catalog.js';
-console.log('Supabase URL:', process.env.SUPABASE_URL);
-console.log('Supabase key prefix:', process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 12));
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const SECRET = process.env.PAYSTACK_SECRET_KEY;
 const CURRENCY = (process.env.CURRENCY || 'GHS').toUpperCase();
 const CHANNELS = (process.env.PAYSTACK_CHANNELS || 'card')
@@ -250,9 +253,6 @@ app.get('/api/admin/orders', async (req, res) => {
 
 // ---------- Serve the built site in production (local prod only) ----------
 if (process.env.NODE_ENV === 'production' && process.env.NETLIFY !== 'true') {
-  const path = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const dist = path.join(__dirname, '..', 'dist');
   app.use(express.static(dist));
   app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
