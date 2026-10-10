@@ -2,11 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
-// import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { TIME_SLOTS, MIN_ORDER, priceOrder } from '../shared/catalog.js';
-
-const projectDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 const SECRET = process.env.PAYSTACK_SECRET_KEY;
 const CURRENCY = (process.env.CURRENCY || 'GHS').toUpperCase();
@@ -16,25 +13,29 @@ const CHANNELS = (process.env.PAYSTACK_CHANNELS || 'card')
   .filter(Boolean);
 const PORT = process.env.PORT || 3001;
 
+// Log missing env vars but DO NOT exit — that kills Netlify Functions.
 if (!SECRET) {
-  console.error('Missing PAYSTACK_SECRET_KEY. Copy .env.example to .env and add your key.');
-  process.exit(1);
+  console.error('WARNING: PAYSTACK_SECRET_KEY is not set.');
 }
-
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  console.error('Missing Supabase credentials. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to .env.');
-  process.exit(1);
+  console.error('WARNING: Supabase credentials are not set.');
 }
 
 // ---------- Supabase client ----------
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { persistSession: false } }
-);
+// createClient throws if the URL or key is undefined — guard against that
+// so the module can still load and /api/config can respond.
+const supabase =
+  process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+      })
+    : null;
 
 // ---------- Paystack helper ----------
 async function paystack(endpoint, options = {}) {
+  if (!SECRET) {
+    throw new Error('PAYSTACK_SECRET_KEY is not configured on the server.');
+  }
   const res = await fetch(`https://api.paystack.co${endpoint}`, {
     ...options,
     headers: {
@@ -51,8 +52,15 @@ async function paystack(endpoint, options = {}) {
 }
 
 // ---------- Supabase order helpers ----------
+function requireSupabase() {
+  if (!supabase) {
+    throw new Error('Supabase is not configured on the server.');
+  }
+  return supabase;
+}
+
 async function loadOrder(reference) {
-  const { data, error } = await supabase
+  const { data, error } = await requireSupabase()
     .from('orders')
     .select('*')
     .eq('reference', reference)
@@ -62,14 +70,14 @@ async function loadOrder(reference) {
 }
 
 async function saveOrder(order) {
-  const { error } = await supabase
+  const { error } = await requireSupabase()
     .from('orders')
     .upsert(order, { onConflict: 'reference' });
   if (error) throw error;
 }
 
 async function listOrders() {
-  const { data, error } = await supabase
+  const { data, error } = await requireSupabase()
     .from('orders')
     .select('*')
     .order('created_at', { ascending: false });
@@ -101,30 +109,41 @@ async function markPaid(reference, tx) {
 const app = express();
 
 // ---------- Webhook (needs the raw body to check the signature) ----------
-app.post('/api/paystack/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  try {
-    const signature = String(req.headers['x-paystack-signature'] || '');
-    const expected = crypto.createHmac('sha512', SECRET).update(req.body).digest('hex');
-    if (
-      signature.length !== expected.length ||
-      !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
-    ) {
-      return res.sendStatus(401);
+app.post(
+  '/api/paystack/webhook',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    try {
+      if (!SECRET) return res.sendStatus(500);
+      const signature = String(req.headers['x-paystack-signature'] || '');
+      const expected = crypto.createHmac('sha512', SECRET).update(req.body).digest('hex');
+      if (
+        signature.length !== expected.length ||
+        !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+      ) {
+        return res.sendStatus(401);
+      }
+      const event = JSON.parse(req.body.toString('utf8'));
+      if (event.event === 'charge.success') {
+        await markPaid(event.data.reference, event.data);
+      }
+      res.sendStatus(200);
+    } catch (err) {
+      console.error('webhook error:', err.message);
+      res.sendStatus(500);
     }
-    const event = JSON.parse(req.body.toString('utf8'));
-    if (event.event === 'charge.success') {
-      await markPaid(event.data.reference, event.data);
-    }
-    res.sendStatus(200);
-  } catch (err) {
-    console.error('webhook error:', err.message);
-    res.sendStatus(500);
   }
-});
+);
 
 app.use(express.json({ limit: '50kb' }));
 
-app.get('/api/config', (_req, res) => res.json({ currency: CURRENCY }));
+app.get('/api/config', (_req, res) => {
+  res.json({
+    currency: CURRENCY,
+    paystackConfigured: Boolean(SECRET),
+    supabaseConfigured: Boolean(supabase),
+  });
+});
 
 const clean = (v, max = 200) => String(v ?? '').trim().slice(0, max);
 
@@ -145,10 +164,15 @@ app.post('/api/checkout', async (req, res) => {
 
     const errors = {};
     if (customer.name.length < 2) errors.name = 'Enter your full name.';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email)) errors.email = 'Enter a valid email address.';
-    if (customer.phone.replace(/\D/g, '').length < 7) errors.phone = 'Enter a phone number we can call.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer.email))
+      errors.email = 'Enter a valid email address.';
+    if (customer.phone.replace(/\D/g, '').length < 7)
+      errors.phone = 'Enter a phone number we can call.';
     if (customer.address.length < 6) errors.address = 'Enter the pickup address.';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(pickupDate) || pickupDate <= new Date().toISOString().slice(0, 10)) {
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(pickupDate) ||
+      pickupDate <= new Date().toISOString().slice(0, 10)
+    ) {
       errors.pickupDate = 'Choose a pickup date from tomorrow onward.';
     }
     if (!TIME_SLOTS.includes(pickupSlot)) errors.pickupSlot = 'Choose a pickup time.';
@@ -253,7 +277,9 @@ app.get('/api/admin/orders', async (req, res) => {
 
 // ---------- Serve the built site in production (local prod only) ----------
 if (process.env.NODE_ENV === 'production' && process.env.NETLIFY !== 'true') {
-  const dist = path.join(projectDir, '..', 'dist');
+  // Compute __dirname lazily so bundlers don't try to resolve it at module load.
+  const here = path.dirname(new URL(import.meta.url).pathname);
+  const dist = path.join(here, '..', 'dist');
   app.use(express.static(dist));
   app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 }
