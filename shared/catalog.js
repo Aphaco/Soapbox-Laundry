@@ -3,10 +3,10 @@
 // Prices are in whole major units (e.g. cedis). Edit freely.
 
 export const SERVICES = [
-  { id: 'wash-fold',  name: 'Wash and fold',      unit: 'kg',   price: 18, note: 'Everyday clothes, washed, dried and folded.' },
-  { id: 'wash-iron',  name: 'Wash and iron',      unit: 'kg',   price: 25, note: 'Shirts, trousers and dresses, pressed and on hangers.' },
-  { id: 'dry-clean',  name: 'Dry cleaning',       unit: 'item', price: 40, note: 'Suits, coats, gowns and delicate fabrics.' },
-  { id: 'bedding',    name: 'Duvets and bedding', unit: 'item', price: 70, note: 'Duvets, comforters, blankets and curtains.' },
+  { id: 'wash-fold',  name: 'Wash and fold',      unit: 'kg',   price: 50, note: 'Everyday clothes, washed, dried and folded.' },
+  { id: 'wash-iron',  name: 'Wash and iron',      unit: 'kg',   price: 125, note: 'Shirts, trousers and dresses, pressed and on hangers.' },
+  { id: 'dry-clean',  name: 'Dry cleaning',       unit: 'item', price: 190, note: 'Suits, coats, gowns and delicate fabrics.' },
+  { id: 'bedding',    name: 'Duvets and bedding', unit: 'item', price: 270, note: 'Duvets, comforters, blankets and curtains.' },
 ];
 
 export const EXPRESS_RATE = 0.25;        // +25% for next-morning turnaround
