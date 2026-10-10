@@ -2,11 +2,11 @@ import 'dotenv/config';
 import express from 'express';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { TIME_SLOTS, MIN_ORDER, priceOrder } from '../shared/catalog.js';
 
-const projectDir = path.dirname(fileURLToPath(import.meta.url));
+const projectDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 const SECRET = process.env.PAYSTACK_SECRET_KEY;
 const CURRENCY = (process.env.CURRENCY || 'GHS').toUpperCase();
